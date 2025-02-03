@@ -7,67 +7,29 @@ trap 'echo "脚本错误：$(basename $0) 行号: $LINENO, 错误命令: $BASH_C
 sudo -v
 
 # 日志记录
-LOG_FILE="docker_install.log"
-[ -f "$LOG_FILE" ] && mv "$LOG_FILE" "$LOG_FILE.$(date +%Y%m%d%H%M%S).bak"
+LOG_FILE="/path/to/docker_install.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
-
 echo "脚本开始时间: $(date '+%Y-%m-%d %H:%M:%S')"
 
-# 检查是否为 root 权限运行
-if [ "$EUID" -ne 0 ]; then
-    echo "❌ 请使用 root 权限运行此脚本 (使用 sudo)"
-    exit 1
-fi
-
-# 检查系统类型和版本
-. /etc/os-release
-MIN_DEBIAN_VERSION="11"  # Debian 11 (Bullseye) 是 Docker 支持的最低版本
-MIN_UBUNTU_VERSION="18.04"
-
-if [[ "$ID" == "debian" ]]; then
-    if [[ $(lsb_release -rs) < "$MIN_DEBIAN_VERSION" ]]; then
-        echo "❌ Debian 系统版本低于所需的最低版本 ($MIN_DEBIAN_VERSION)"
-        exit 1
-    fi
-elif [[ "$ID" == "ubuntu" ]]; then
-    if [[ $(lsb_release -rs) < "$MIN_UBUNTU_VERSION" ]]; then
-        echo "❌ Ubuntu 系统版本低于所需的最低版本 ($MIN_UBUNTU_VERSION)"
-        exit 1
-    fi
-else
-    echo "❌ 不支持的系统: $ID"
-    exit 1
-fi
-
-# 定义卸载 Docker 函数
-uninstall_old_docker() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - 卸载旧版 Docker..."
-    sudo apt remove --purge -y docker docker-engine docker.io containerd runc docker-ce docker-ce-cli containerd.io || true
-    sudo rm -rf /var/lib/docker /var/lib/containerd /etc/docker
-    echo "✅ 旧版 Docker 已卸载"
-}
-
-# 1. 检查是否已安装 Docker
-if dpkg -l | grep -E 'docker|containerd' > /dev/null 2>&1; then
+# 1. 检查旧版本 Docker
+if dpkg -l | grep -q docker; then
     echo "⚠️ 检测到已安装的 Docker 或 Containerd 组件，请选择操作："
-    while true; do
-        echo "1) 卸载旧版并重新安装"
-        echo "2) 覆盖安装（保留旧版配置）"
-        echo "3) 退出脚本"
-        
-        # 读取用户输入，防止 `stdin` 问题
-        read -r -p "请输入选项 (1/2/3): " choice </dev/tty
+    echo "1) 卸载旧版并重新安装"
+    echo "2) 覆盖安装（保留旧版配置）"
+    echo "3) 退出脚本"
 
-        case "$choice" in
+    while true; do
+        read -p "请输入选项 (1/2/3): " choice
+        case $choice in
             1)
-                echo "🔄 开始卸载旧版本 Docker..."
-                sudo apt remove --purge -y docker docker-engine docker.io containerd runc
-                sudo rm -rf /var/lib/docker /var/lib/containerd
-                echo "✅ 旧版本 Docker 已卸载"
+                echo "🔄 卸载旧版 Docker..."
+                sudo apt remove --purge -y docker docker-engine docker.io containerd runc docker-compose
+                sudo rm -rf /var/lib/docker /etc/docker /var/lib/containerd
+                echo "✅ 旧版 Docker 已卸载"
                 break
                 ;;
             2)
-                echo "📌 选择了覆盖安装，将保留原有配置"
+                echo "⚠️ 选择覆盖安装，将保留现有 Docker 配置"
                 break
                 ;;
             3)
@@ -75,120 +37,123 @@ if dpkg -l | grep -E 'docker|containerd' > /dev/null 2>&1; then
                 exit 0
                 ;;
             *)
-                echo "❌ 无效选项，请输入 1、2 或 3"
+                echo "❌ 无效选项，请重新输入"
                 ;;
         esac
     done
 fi
 
 # 2. 安装 Docker 依赖包
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 检查并安装 Docker 依赖包..."
+echo "📦 正在检查并安装 Docker 依赖包..."
 for pkg in ca-certificates curl gnupg2 software-properties-common rsync jq; do
     if ! dpkg -l | grep -q "$pkg"; then
-        echo "$pkg 未安装，正在安装..."
-        sudo apt install -y "$pkg" || { echo "⚠️ $pkg 安装失败，继续安装其他包..." >> "$LOG_FILE"; }
+        sudo apt-get install -y "$pkg" || echo "⚠️ $pkg 安装失败，继续安装其他包..."
     fi
 done
 
 # 3. 添加 Docker 官方 GPG 密钥
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 添加 Docker GPG 密钥..."
-curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg || { echo "❌ GPG 密钥下载失败"; exit 1; }
+echo "🔑 添加 Docker GPG 密钥..."
+sudo mkdir -p /usr/share/keyrings
+curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
 
 # 4. 自动检测系统并添加 Docker APT 源
 . /etc/os-release
 ARCH=$(dpkg --print-architecture)
-DOCKER_SOURCE="https://download.docker.com/linux/$ID"
+DOCKER_SOURCE="https://download.docker.com/linux/${ID}"
+
+echo "📌 添加 Docker APT 源..."
 echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] $DOCKER_SOURCE $VERSION_CODENAME stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
 # 5. 安装 Docker
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 安装 Docker..."
-sudo apt update && sudo apt install -y docker-ce docker-ce-cli containerd.io || { echo "❌ Docker 安装失败"; exit 1; }
+echo "🚀 安装 Docker..."
+sudo apt update && sudo apt install -y docker-ce docker-ce-cli containerd.io
 
 # 6. 配置 Docker 数据目录
-docker_data_dir="/opt/MyDocker"
-sudo mkdir -p "$docker_data_dir"
-sudo systemctl stop docker
+DOCKER_DATA_DIR="/opt/MyDocker"
+echo "📂 配置 Docker 数据目录: $DOCKER_DATA_DIR"
+sudo mkdir -p "$DOCKER_DATA_DIR"
 
-# 迁移 Docker 数据（如果存在旧数据）
 if [ -d /var/lib/docker ] && [ ! -L /var/lib/docker ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - 迁移 Docker 数据..."
-    sudo rsync -a --delete /var/lib/docker/ "$docker_data_dir"/ || { echo "❌ 数据迁移失败"; exit 1; }
+    echo "🔄 迁移 Docker 数据..."
+    sudo systemctl stop docker
+    sudo rsync -a --delete /var/lib/docker/ "$DOCKER_DATA_DIR"/
     sudo mv /var/lib/docker "/var/lib/docker.bak.$(date +%s)"
-    sudo ln -s "$docker_data_dir" /var/lib/docker
+    sudo ln -s "$DOCKER_DATA_DIR" /var/lib/docker
 fi
 
-# 设置权限和所有权
-sudo chmod -R 750 "$docker_data_dir"
+sudo chmod -R 750 "$DOCKER_DATA_DIR"
 sudo groupadd -f docker
-sudo chown -R root:docker "$docker_data_dir"
+sudo chown -R root:docker "$DOCKER_DATA_DIR"
 
 # 7. 配置 Docker `daemon.json`
-daemon_config="/etc/docker/daemon.json"
-docker_daemon_config="{
-  \"data-root\": \"$docker_data_dir\",
+DAEMON_CONFIG="/etc/docker/daemon.json"
+DOCKER_DAEMON_CONFIG="{
+  \"data-root\": \"$DOCKER_DATA_DIR\",
   \"selinux-enabled\": false,
   \"userns-remap\": \"\"
 }"
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Docker daemon.json..."
+echo "🛠️ 配置 Docker daemon.json..."
 sudo mkdir -p /etc/docker
-if [ -f "$daemon_config" ]; then
-    sudo cp "$daemon_config" "$daemon_config.bak.$(date +%Y%m%d%H%M%S)"
-fi
-sudo tee "$daemon_config" > /dev/null <<< "$docker_daemon_config"
+echo "$DOCKER_DAEMON_CONFIG" | sudo tee "$DAEMON_CONFIG" > /dev/null
 
 # 8. 启动 Docker 并设置开机启动
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 启动 Docker..."
-sudo systemctl start docker
+echo "🔄 启动 Docker..."
+sudo systemctl restart docker
 sudo systemctl enable docker
 
 # 9. 允许非 root 用户运行 Docker
 if ! groups $USER | grep -q "\bdocker\b"; then
-    echo "添加 $USER 到 Docker 组（重新登录后生效）..."
+    echo "👤 添加 $USER 到 Docker 组..."
     sudo usermod -aG docker $USER
-    echo "⚠️ 已将 $USER 添加到 Docker 组。请注意，Docker 组的用户具有等同于 root 的权限。"
 fi
 
-# 10. 安装 Docker Compose（带哈希校验）
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 安装 Docker Compose..."
-DOCKER_COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep -Po '"tag_name": "\K.*\d')
-COMPOSE_URL="https://github.com/docker/compose/releases/download/$DOCKER_COMPOSE_VERSION/docker-compose-$(uname -s)-$(uname -m)"
-CHECKSUM_URL="$COMPOSE_URL.sha256"
+# 10. 安装 Docker Compose
+echo "📥 安装 Docker Compose..."
+DOCKER_COMPOSE_BIN="/usr/local/bin/docker-compose"
+ARCH=$(uname -m)
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 
-# 下载并校验 Docker Compose
-sudo curl -L "$COMPOSE_URL" -o /usr/local/bin/docker-compose || { echo "❌ Docker Compose 下载失败"; exit 1; }
-curl -L "$CHECKSUM_URL" -o docker-compose.sha256 || { echo "❌ Docker Compose 校验文件下载失败"; exit 1; }
-sha256sum -c docker-compose.sha256 || { echo "❌ Docker Compose 校验失败"; exit 1; }
-sudo chmod +x /usr/local/bin/docker-compose
-rm docker-compose.sha256
-echo "Docker Compose 版本: $(docker-compose --version)"
-
-# 11. 运行 Docker 测试
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 运行 Docker 测试..."
-if ! sudo docker run --rm hello-world > /dev/null; then
-    echo "❌ Docker 测试失败，请检查日志："
-    sudo journalctl -u docker --no-pager | tail -n 20
+if [[ "$ARCH" == "x86_64" ]]; then
+    COMPOSE_ARCH="linux-x86_64"
+elif [[ "$ARCH" == "aarch64" ]]; then
+    COMPOSE_ARCH="linux-aarch64"
+else
+    echo "❌ 不支持的架构: $ARCH"
     exit 1
 fi
-echo "✅ Docker 测试成功！"
 
-# 12. 检查磁盘空间
-disk_space=$(df --output=avail -h "$docker_data_dir" | tail -n 1)
-if [[ "$disk_space" =~ [0-9]+[MG] ]]; then
-    echo "⚠️ 磁盘空间不足（当前剩余 $disk_space），建议扩展磁盘空间。"
-else
-    echo "💾 磁盘空间情况: $disk_space"
+COMPOSE_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-${OS}-${COMPOSE_ARCH}"
+CHECKSUM_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-${OS}-${COMPOSE_ARCH}.sha256"
+
+rm -f "docker-compose-${OS}-${COMPOSE_ARCH}"
+
+echo "📥 下载 Docker Compose..."
+curl -fsSL "$COMPOSE_URL" -o "$DOCKER_COMPOSE_BIN" && \
+curl -fsSL "$CHECKSUM_URL" -o "${DOCKER_COMPOSE_BIN}.sha256" && \
+sha256sum --check --ignore-missing "${DOCKER_COMPOSE_BIN}.sha256"
+
+if [[ $? -ne 0 ]]; then
+    echo "❌ 校验失败！是否继续安装？(y/N)"
+    read -p "输入选项: " -n 1 -r
+    echo
+    [[ ! $REPLY =~ ^[Yy]$ ]] && exit 1
 fi
 
-# 13. 清理临时文件
-cleanup() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - 清理临时文件..."
-    rm -f docker-compose.sha256
-}
-trap cleanup EXIT
+sudo chmod +x "$DOCKER_COMPOSE_BIN"
 
+echo "✅ Docker Compose 安装成功！版本: $($DOCKER_COMPOSE_BIN --version)"
+
+# 11. 测试 Docker
+echo "🛠️ 运行 Docker 测试..."
+sudo systemctl start docker
+if ! sudo docker run --rm hello-world > /dev/null; then
+    echo "❌ Docker 测试失败！请检查日志"
+    exit 1
+fi
+
+# 12. 完成信息
 echo "🎉 Docker 安装完成！"
-echo "📁 Docker 数据目录: $docker_data_dir"
-echo "🛠️ 你可以运行以下命令检查 Docker 状态:"
-echo "    sudo docker info | grep 'Docker Root Dir'"
+echo "📁 Docker 数据目录: $DOCKER_DATA_DIR"
+echo "🛠️ 运行 'newgrp docker' 使 Docker 组生效"
 echo "📝 安装日志已保存到: $LOG_FILE"
