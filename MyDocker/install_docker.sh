@@ -47,29 +47,35 @@ uninstall_old_docker() {
     echo "✅ 旧版 Docker 已卸载"
 }
 
-# 1. 检查旧版本 Docker
-if dpkg -l | grep -q 'docker\|containerd'; then
+# 1. 检查是否已安装 Docker
+if dpkg -l | grep -E 'docker|containerd' > /dev/null 2>&1; then
     echo "⚠️ 检测到已安装的 Docker 或 Containerd 组件，请选择操作："
-    echo "1) 卸载旧版并重新安装"
-    echo "2) 覆盖安装（保留旧版配置）"
-    echo "3) 退出脚本"
     while true; do
-        read -p "请输入选项 (1/2/3): " choice
-        case $choice in
+        echo "1) 卸载旧版并重新安装"
+        echo "2) 覆盖安装（保留旧版配置）"
+        echo "3) 退出脚本"
+        
+        # 读取用户输入，防止 `stdin` 问题
+        read -r -p "请输入选项 (1/2/3): " choice </dev/tty
+
+        case "$choice" in
             1)
-                uninstall_old_docker
+                echo "🔄 开始卸载旧版本 Docker..."
+                sudo apt remove --purge -y docker docker-engine docker.io containerd runc
+                sudo rm -rf /var/lib/docker /var/lib/containerd
+                echo "✅ 旧版本 Docker 已卸载"
                 break
                 ;;
             2)
-                echo "⚠️ 继续覆盖安装（可能因版本冲突导致问题）..."
+                echo "📌 选择了覆盖安装，将保留原有配置"
                 break
                 ;;
             3)
-                echo "退出脚本"
+                echo "🚪 退出脚本"
                 exit 0
                 ;;
             *)
-                echo "❌ 无效选项，请重新输入"
+                echo "❌ 无效选项，请输入 1、2 或 3"
                 ;;
         esac
     done
