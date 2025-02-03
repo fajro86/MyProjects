@@ -7,9 +7,9 @@ LOG_FILE="docker_install.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 echo "📌 脚本开始时间: $(date '+%Y-%m-%d %H:%M:%S')"
 
-# 1. 检查旧版本 Docker
+# 1. 检查并卸载旧版本 Docker
 if dpkg -l | grep -q docker; then
-    echo "⚠️ 检测到已安装的 Docker 或 Containerd 组件，请选择操作："
+    echo "⚠️ 检测到已安装的 Docker 组件，请选择操作："
     echo "1) 卸载旧版并重新安装"
     echo "2) 覆盖安装（保留旧版配置）"
     echo "3) 退出脚本"
@@ -19,9 +19,10 @@ if dpkg -l | grep -q docker; then
         case "$choice" in
             1)
                 echo "🔄 卸载旧版 Docker..."
-                sudo apt remove --purge -y docker docker-engine docker.io containerd runc
+                sudo systemctl stop docker || true
+                sudo apt remove --purge -y docker-ce docker-ce-cli containerd.io docker.io docker-compose-plugin
                 sudo rm -rf /var/lib/docker /etc/docker /var/lib/containerd
-                echo "✅ 旧版 Docker 已卸载"
+                echo "✅ 旧版 Docker 已彻底卸载"
                 break
                 ;;
             2)
@@ -59,19 +60,15 @@ echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] 
 # 5. 安装 Docker
 echo "🚀 安装 Docker..."
 sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
 # 6. 配置 Docker 目录
 DOCKER_DATA_DIR="/opt/MyDocker"
 echo "📂 配置 Docker 数据目录: $DOCKER_DATA_DIR"
 sudo mkdir -p "$DOCKER_DATA_DIR"
 
-if [ -d /var/lib/docker ] && [ ! -L /var/lib/docker ]; then
-    echo "🔄 迁移 Docker 数据..."
-    sudo rsync -a --delete /var/lib/docker/ "$DOCKER_DATA_DIR"/
-    sudo mv /var/lib/docker "/var/lib/docker.bak.$(date +%s)"
-    sudo ln -s "$DOCKER_DATA_DIR" /var/lib/docker
-fi
+# **新修正点**：确保 `/etc/docker` 目录存在
+sudo mkdir -p /etc/docker
 
 # 7. 配置 daemon.json
 DAEMON_CONFIG="/etc/docker/daemon.json"
@@ -86,8 +83,7 @@ echo "$DOCKER_DAEMON_CONFIG" | sudo tee "$DAEMON_CONFIG" > /dev/null
 
 # 8. 启动 Docker 并设置开机启动
 echo "🔄 启动 Docker..."
-sudo systemctl start docker
-sudo systemctl enable docker
+sudo systemctl enable --now docker
 
 # 9. 添加当前用户到 Docker 组
 if ! groups $USER | grep -q "\bdocker\b"; then
@@ -106,7 +102,13 @@ if [ ! -f "$DOCKER_COMPOSE_PATH" ]; then
     sudo curl -L "$COMPOSE_URL" -o "$DOCKER_COMPOSE_PATH"
     sudo chmod +x "$DOCKER_COMPOSE_PATH"
     
-    # 校验下载文件
+    # **修正点**：检查下载文件是否存在
+    if [ ! -f "$DOCKER_COMPOSE_PATH" ]; then
+        echo "❌ Docker Compose 下载失败"
+        exit 1
+    fi
+    
+    # **修正点**：检查 SHA256 校验是否成功
     echo "🔍 校验 Docker Compose..."
     if ! sudo sha256sum -c <(curl -fsSL "$COMPOSE_URL.sha256" | awk '{print $1 "  '"$DOCKER_COMPOSE_PATH"'"}'); then
         echo "❌ Docker Compose 校验失败"
