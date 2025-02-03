@@ -2,7 +2,6 @@
 
 ```
 wget -qO- https://raw.githubusercontent.com/fajro86/MyProjects/refs/heads/main/MyDocker/install_docker.sh | sudo bash
-
 ```
 
 ### **安装后检查**
