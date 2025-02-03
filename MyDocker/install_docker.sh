@@ -19,10 +19,23 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# 检查系统版本是否符合要求
-MIN_VERSION="18.04"
-if [[ $(lsb_release -rs) < "$MIN_VERSION" ]]; then
-    echo "❌ 当前系统版本低于 Docker 所需的最低版本 ($MIN_VERSION)"
+# 检查系统类型和版本
+. /etc/os-release
+MIN_DEBIAN_VERSION="11"  # Debian 11 (Bullseye) 是 Docker 支持的最低版本
+MIN_UBUNTU_VERSION="18.04"
+
+if [[ "$ID" == "debian" ]]; then
+    if [[ $(lsb_release -rs) < "$MIN_DEBIAN_VERSION" ]]; then
+        echo "❌ Debian 系统版本低于所需的最低版本 ($MIN_DEBIAN_VERSION)"
+        exit 1
+    fi
+elif [[ "$ID" == "ubuntu" ]]; then
+    if [[ $(lsb_release -rs) < "$MIN_UBUNTU_VERSION" ]]; then
+        echo "❌ Ubuntu 系统版本低于所需的最低版本 ($MIN_UBUNTU_VERSION)"
+        exit 1
+    fi
+else
+    echo "❌ 不支持的系统: $ID"
     exit 1
 fi
 
