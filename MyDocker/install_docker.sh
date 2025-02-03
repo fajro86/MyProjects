@@ -153,7 +153,16 @@ CHECKSUM_URL="$COMPOSE_URL.sha256"
 # 下载并校验 Docker Compose
 sudo curl -L "$COMPOSE_URL" -o /usr/local/bin/docker-compose || { echo "❌ Docker Compose 下载失败"; exit 1; }
 curl -L "$CHECKSUM_URL" -o docker-compose.sha256 || { echo "❌ Docker Compose 校验文件下载失败"; exit 1; }
-sha256sum -c docker-compose.sha256 || { echo "❌ Docker Compose 校验失败"; exit 1; }
+
+# 提取期望的哈希值，并手动校验
+EXPECTED_HASH=$(awk '{print $1}' docker-compose.sha256)
+ACTUAL_HASH=$(sha256sum /usr/local/bin/docker-compose | awk '{print $1}')
+
+if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
+    echo "❌ Docker Compose 校验失败 (期望哈希: $EXPECTED_HASH, 实际哈希: $ACTUAL_HASH)"
+    exit 1
+fi
+
 sudo chmod +x /usr/local/bin/docker-compose
 rm docker-compose.sha256
 echo "Docker Compose 版本: $(docker-compose --version)"
