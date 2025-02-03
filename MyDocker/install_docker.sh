@@ -39,15 +39,40 @@ else
     exit 1
 fi
 
+# 定义卸载 Docker 函数
+uninstall_old_docker() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - 卸载旧版 Docker..."
+    sudo apt remove --purge -y docker docker-engine docker.io containerd runc docker-ce docker-ce-cli containerd.io || true
+    sudo rm -rf /var/lib/docker /var/lib/containerd /etc/docker
+    echo "✅ 旧版 Docker 已卸载"
+}
+
 # 1. 检查旧版本 Docker
-if dpkg -l | grep -q docker; then
-    echo "⚠️ 检测到已安装的 Docker 版本，建议先卸载旧版本："
-    echo "    sudo apt remove --purge docker docker-engine docker.io containerd runc"
-    read -p "是否继续安装？(y/n) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
+if dpkg -l | grep -q 'docker\|containerd'; then
+    echo "⚠️ 检测到已安装的 Docker 或 Containerd 组件，请选择操作："
+    echo "1) 卸载旧版并重新安装"
+    echo "2) 覆盖安装（保留旧版配置）"
+    echo "3) 退出脚本"
+    while true; do
+        read -p "请输入选项 (1/2/3): " choice
+        case $choice in
+            1)
+                uninstall_old_docker
+                break
+                ;;
+            2)
+                echo "⚠️ 继续覆盖安装（可能因版本冲突导致问题）..."
+                break
+                ;;
+            3)
+                echo "退出脚本"
+                exit 0
+                ;;
+            *)
+                echo "❌ 无效选项，请重新输入"
+                ;;
+        esac
+    done
 fi
 
 # 2. 安装 Docker 依赖包
