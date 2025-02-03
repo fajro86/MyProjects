@@ -7,7 +7,7 @@ trap 'echo "脚本错误：$(basename $0) 行号: $LINENO, 错误命令: $BASH_C
 sudo -v
 
 # 日志记录
-LOG_FILE="/path/to/docker_install.log"
+LOG_FILE="docker_install.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 echo "脚本开始时间: $(date '+%Y-%m-%d %H:%M:%S')"
 
@@ -23,7 +23,7 @@ if dpkg -l | grep -q docker; then
         case $choice in
             1)
                 echo "🔄 卸载旧版 Docker..."
-                sudo apt remove --purge -y docker docker-engine docker.io containerd runc docker-compose
+                sudo apt remove --purge -y docker docker-engine docker.io containerd runc
                 sudo rm -rf /var/lib/docker /etc/docker /var/lib/containerd
                 echo "✅ 旧版 Docker 已卸载"
                 break
@@ -47,13 +47,12 @@ fi
 echo "📦 正在检查并安装 Docker 依赖包..."
 for pkg in ca-certificates curl gnupg2 software-properties-common rsync jq; do
     if ! dpkg -l | grep -q "$pkg"; then
-        sudo apt-get install -y "$pkg" || echo "⚠️ $pkg 安装失败，继续安装其他包..."
+        sudo apt install -y "$pkg" || echo "⚠️ $pkg 安装失败，继续安装其他包..."
     fi
 done
 
 # 3. 添加 Docker 官方 GPG 密钥
 echo "🔑 添加 Docker GPG 密钥..."
-sudo mkdir -p /usr/share/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
 
 # 4. 自动检测系统并添加 Docker APT 源
@@ -75,7 +74,6 @@ sudo mkdir -p "$DOCKER_DATA_DIR"
 
 if [ -d /var/lib/docker ] && [ ! -L /var/lib/docker ]; then
     echo "🔄 迁移 Docker 数据..."
-    sudo systemctl stop docker
     sudo rsync -a --delete /var/lib/docker/ "$DOCKER_DATA_DIR"/
     sudo mv /var/lib/docker "/var/lib/docker.bak.$(date +%s)"
     sudo ln -s "$DOCKER_DATA_DIR" /var/lib/docker
@@ -129,24 +127,33 @@ CHECKSUM_URL="https://github.com/docker/compose/releases/latest/download/docker-
 rm -f "docker-compose-${OS}-${COMPOSE_ARCH}"
 
 echo "📥 下载 Docker Compose..."
-curl -fsSL "$COMPOSE_URL" -o "$DOCKER_COMPOSE_BIN" && \
-curl -fsSL "$CHECKSUM_URL" -o "${DOCKER_COMPOSE_BIN}.sha256" && \
-sha256sum --check --ignore-missing "${DOCKER_COMPOSE_BIN}.sha256"
+curl -fsSL "$COMPOSE_URL" -o "docker-compose-${OS}-${COMPOSE_ARCH}"
 
-if [[ $? -ne 0 ]]; then
-    echo "❌ 校验失败！是否继续安装？(y/N)"
-    read -p "输入选项: " -n 1 -r
-    echo
-    [[ ! $REPLY =~ ^[Yy]$ ]] && exit 1
+if [[ ! -s "docker-compose-${OS}-${COMPOSE_ARCH}" ]]; then
+    echo "❌ 下载的 Docker Compose 文件为空，安装失败！"
+    exit 1
 fi
 
+if curl -fsSL "$CHECKSUM_URL" -o "docker-compose-${OS}-${COMPOSE_ARCH}.sha256"; then
+    echo "🔍 校验 Docker Compose..."
+    sha256sum --check --ignore-missing "docker-compose-${OS}-${COMPOSE_ARCH}.sha256"
+    if [[ $? -ne 0 ]]; then
+        echo "❌ 校验失败！是否继续安装？(y/N)"
+        read -p "输入选项: " -n 1 -r
+        echo
+        [[ ! $REPLY =~ ^[Yy]$ ]] && exit 1
+    fi
+else
+    echo "⚠️ 无法获取 SHA256 校验文件，跳过校验！"
+fi
+
+sudo mv "docker-compose-${OS}-${COMPOSE_ARCH}" "$DOCKER_COMPOSE_BIN"
 sudo chmod +x "$DOCKER_COMPOSE_BIN"
 
 echo "✅ Docker Compose 安装成功！版本: $($DOCKER_COMPOSE_BIN --version)"
 
 # 11. 测试 Docker
 echo "🛠️ 运行 Docker 测试..."
-sudo systemctl start docker
 if ! sudo docker run --rm hello-world > /dev/null; then
     echo "❌ Docker 测试失败！请检查日志"
     exit 1
