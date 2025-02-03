@@ -1,7 +1,8 @@
 ### **一键安装命令**
 
 ```
-wget -qO- https://raw.githubusercontent.com/fajro86/docker/refs/heads/main/install_docker | bash
+wget -qO- https://raw.githubusercontent.com/fajro86/MyProjects/refs/heads/main/MyDocker/install_docker.sh | sudo bash
+
 ```
 
 ### **安装后检查**
