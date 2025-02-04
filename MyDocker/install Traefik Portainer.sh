@@ -1,6 +1,6 @@
 #!/bin/bash
 # 一键部署 Traefik + Portainer (Debian 12)
-# 修复反引号导致的 YAML 语法错误
+# 完全修复版本：解决 YAML 语法和变量替换冲突
 # GitHub: https://github.com/fajro86/MyProjects/blob/main/MyDocker/install%20Traefik%20Portainer.sh
 
 set -e
@@ -76,7 +76,7 @@ networks:
     driver: bridge
 EOF
 
-# 修复 Portainer 的 docker-compose.yml
+# 修复 Portainer 的 docker-compose.yml（关键修改！）
 cat > ${PORTAINER_DIR}/docker-compose.yml <<EOF
 version: '3'
 
@@ -92,7 +92,7 @@ services:
       - traefik_network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.portainer.rule=Host(\`docker.${DOMAIN}\`)"  # 修复反引号
+      - 'traefik.http.routers.portainer.rule=Host(`docker.${DOMAIN}`)'  # 使用单引号包裹
       - "traefik.http.routers.portainer.tls=true"
       - "traefik.http.routers.portainer.tls.certresolver=letsencrypt"
       - "traefik.http.services.portainer.loadbalancer.server.port=9000"
@@ -107,4 +107,6 @@ cd ${TRAEFIK_DIR} && docker-compose up -d
 cd ${PORTAINER_DIR} && docker-compose up -d
 
 echo "==================================================="
-echo "✅ 修复完成！请访问 Portainer 面板：https://docker.${DOMAIN}"
+echo "✅ 终极修复完成！请访问："
+echo "- Portainer 面板: https://docker.${DOMAIN}"
+echo "==================================================="
