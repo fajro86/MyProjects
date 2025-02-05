@@ -19,105 +19,37 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# 1. 安装 Docker（如果未安装）
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 检查并安装 Docker..."
-if ! command -v docker &> /dev/null; then
-    echo "Docker 未安装，正在安装..."
-    sudo apt update
-    sudo apt install -y docker.io
-    sudo systemctl start docker
-    sudo systemctl enable docker
-else
-    echo "Docker 已安装"
+# 配置 Docker 数据目录
+docker_data_dir="/opt/MyDocker/nginx-proxy-manager"
+sudo mkdir -p "$docker_data_dir"
+sudo systemctl stop docker
+
+# 迁移 Docker 数据（如果存在旧数据）
+if [ -d /var/lib/docker ] && [ ! -L /var/lib/docker ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - 迁移 Docker 数据..."
+    sudo rsync -a --delete /var/lib/docker/ "$docker_data_dir"/ || { echo "❌ 数据迁移失败"; exit 1; }
+    sudo mv /var/lib/docker "/var/lib/docker.bak.$(date +%s)"
+    sudo ln -s "$docker_data_dir" /var/lib/docker
 fi
 
-# 2. 安装 Docker Compose（如果未安装）
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 检查并安装 Docker Compose..."
-if ! command -v docker-compose &> /dev/null; then
-    echo "Docker Compose 未安装，正在安装..."
-    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    sudo chmod +x /usr/local/bin/docker-compose
-else
-    echo "Docker Compose 已安装"
-fi
+# 设置权限和所有权
+sudo chmod -R 750 "$docker_data_dir"
+sudo groupadd -f docker
+sudo chown -R root:docker "$docker_data_dir"
 
-# 3. 拉取并配置 Nginx Proxy Manager 镜像
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 拉取 Nginx Proxy Manager 镜像..."
-docker pull jc21/nginx-proxy-manager:latest
+# 拉取并运行 Nginx Proxy Manager Docker 镜像
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 启动 Nginx Proxy Manager..."
 
-# 4. 配置 Nginx Proxy Manager 的 Docker 容器
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Nginx Proxy Manager Docker 容器..."
-mkdir -p /opt/nginx-proxy-manager
-cd /opt/nginx-proxy-manager
+docker run -d \
+  --name=nginx-proxy-manager \
+  -p 8188:80 \
+  -p 8189:443 \
+  -p 8190:81 \
+  -v "$docker_data_dir/data":/data \
+  -v "$docker_data_dir/letsencrypt":/etc/letsencrypt \
+  --restart unless-stopped \
+  jc21/nginx-proxy-manager:latest
 
-cat <<EOF > docker-compose.yml
-version: '3'
-
-services:
-  nginx-proxy-manager:
-    image: jc21/nginx-proxy-manager:latest
-    container_name: nginx-proxy-manager
-    restart: unless-stopped
-    environment:
-      - DB_SQLITE_FILE=/data/database.sqlite
-      - MYSQL_ROOT_PASSWORD=example  # 如果使用 MySQL 作为数据库
-    volumes:
-      - ./data:/data
-      - ./letsencrypt:/etc/letsencrypt
-    ports:
-      - "8188:8188"   # 可根据需求修改端口
-      - "80:80"
-      - "443:443"
-EOF
-
-# 5. 启动容器
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 启动 Nginx Proxy Manager 容器..."
-docker-compose up -d
-
-# 6. 申请 SSL 证书
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 开始申请 SSL 证书..."
-read -p "请输入您要为 Nginx Proxy Manager 配置的域名 (如: your-domain.com): " domain
-read -p "请输入您的邮箱地址 (用于 Certbot 证书申请): " email
-
-# 确认输入的域名和邮箱是否有效
-if [ -z "$domain" ]; then
-    echo "❌ 域名不能为空，请重新运行脚本并提供有效的域名！"
-    exit 1
-fi
-
-if [ -z "$email" ]; then
-    echo "❌ 邮箱不能为空，请重新运行脚本并提供有效的邮箱！"
-    exit 1
-fi
-
-echo "已输入域名: $domain"
-echo "已输入邮箱: $email"
-
-# 安装 Certbot
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 安装 Certbot..."
-sudo apt update
-sudo apt install -y certbot
-
-# 申请证书
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 使用 Certbot 申请 SSL 证书..."
-sudo certbot certonly --standalone -d "$domain" --email "$email" --agree-tos --non-interactive
-
-# 配置 Nginx 证书
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Nginx 使用 SSL 证书..."
-sudo cp /etc/letsencrypt/live/$domain/fullchain.pem /opt/nginx-proxy-manager/letsencrypt/$domain.crt
-sudo cp /etc/letsencrypt/live/$domain/privkey.pem /opt/nginx-proxy-manager/letsencrypt/$domain.key
-
-# 7. 配置 Nginx Proxy Manager 使用 SSL 证书
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Nginx Proxy Manager 使用 SSL..."
-docker exec -it nginx-proxy-manager bash -c "sed -i 's|ssl_certificate .*|ssl_certificate /etc/letsencrypt/$domain.crt;|' /etc/nginx/conf.d/default.conf"
-docker exec -it nginx-proxy-manager bash -c "sed -i 's|ssl_certificate_key .*|ssl_certificate_key /etc/letsencrypt/$domain.key;|' /etc/nginx/conf.d/default.conf"
-
-# 8. 重载 Nginx 配置
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 重载 Nginx 配置..."
-docker exec nginx-proxy-manager nginx -s reload
-
-# 9. 结束安装
-echo "🎉 Nginx Proxy Manager 安装完成！"
-echo "📁 Nginx Proxy Manager 配置目录: /opt/nginx-proxy-manager"
-echo "🛠️ 你可以访问 Nginx Proxy Manager 面板：http://$domain:8188"
-echo "📝 安装日志已保存到: $LOG_FILE"
+echo "✅ Nginx Proxy Manager 安装完成！"
+echo "📁 数据目录: $docker_data_dir"
+echo "🛠️ 你可以通过 http://<your-ip>:8188 访问 Nginx Proxy Manager 面板"
