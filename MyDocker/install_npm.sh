@@ -19,6 +19,12 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# 检查是否在交互式环境中运行
+if [ ! -t 0 ]; then
+    echo "❌ 此脚本需要在交互式环境中运行"
+    exit 1
+fi
+
 # 检查系统类型和版本
 . /etc/os-release
 MIN_DEBIAN_VERSION="11"  # Debian 11 (Bullseye) 是 Docker 支持的最低版本
@@ -145,7 +151,7 @@ services:
       - /opt/MyDocker/nginx-proxy-manager/letsencrypt:/etc/letsencrypt
     ports:
       - "8188:80"
-      - "4388:443"
+      - "4443:443"
       - "8118:81"  # 添加管理面板端口
     restart: unless-stopped
 EOF
