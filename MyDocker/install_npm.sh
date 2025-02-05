@@ -19,12 +19,6 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# 检查是否在交互式环境中运行
-if [ ! -t 0 ]; then
-    echo "❌ 此脚本需要在交互式环境中运行"
-    exit 1
-fi
-
 # 检查系统类型和版本
 . /etc/os-release
 MIN_DEBIAN_VERSION="11"  # Debian 11 (Bullseye) 是 Docker 支持的最低版本
@@ -44,63 +38,6 @@ else
     echo "❌ 不支持的系统: $ID"
     exit 1
 fi
-
-# 询问是否申请证书
-echo "选择证书申请方式："
-echo "1) 跳过证书申请"
-echo "2) 立即申请自签名证书"
-echo "3) 立即申请 Let's Encrypt 证书"
-
-# 获取用户选择
-read -p "请输入选项 (1/2/3): " choice
-
-case $choice in
-    1)
-        echo "跳过证书申请，继续安装..."
-        ;;
-    2)
-        # 自签名证书生成
-        echo "正在生成自签名证书..."
-        ssl_dir="/opt/MyDocker/nginx-proxy-manager/letsencrypt"
-        sudo mkdir -p "$ssl_dir"
-        read -p "请输入用于生成证书的域名: " domain
-        read -p "请输入用于生成证书的邮箱: " email
-        sudo openssl req -x509 -nodes -newkey rsa:2048 -keyout "$ssl_dir/selfsigned.key" -out "$ssl_dir/selfsigned.crt" -days 365 -subj "/CN=$domain/emailAddress=$email"
-        echo "自签名证书已生成"
-        ;;
-    3)
-        # Let's Encrypt 证书申请
-        echo "正在申请 Let's Encrypt 证书..."
-        ssl_dir="/opt/MyDocker/nginx-proxy-manager/letsencrypt"
-        sudo mkdir -p "$ssl_dir"
-        read -p "请输入用于申请证书的域名: " domain
-        read -p "请输入用于申请证书的邮箱: " email
-
-        # 检查域名格式
-        if [[ ! "$domain" =~ ^[a-zA-Z0-9.-]+$ ]]; then
-            echo "❌ 域名格式不正确，请输入有效的域名"
-            exit 1
-        fi
-
-        # 需要确保域名解析已指向服务器 IP
-        if ! command -v certbot &> /dev/null; then
-            echo "Certbot 未安装，正在安装..."
-            sudo apt install -y certbot
-        fi
-
-        # 使用 certbot 自动申请证书
-        sudo certbot certonly --standalone --agree-tos --no-eff-email -d "$domain" --email "$email"
-        
-        # 复制证书到指定目录
-        sudo cp /etc/letsencrypt/live/$domain/fullchain.pem "$ssl_dir/cert.pem"
-        sudo cp /etc/letsencrypt/live/$domain/privkey.pem "$ssl_dir/key.pem"
-        echo "Let's Encrypt 证书已申请并存储"
-        ;;
-    *)
-        echo "无效选项，退出安装"
-        exit 1
-        ;;
-esac
 
 # 安装 Docker 和 Docker Compose（确保已安装）
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 安装 Docker 和 Docker Compose..."
