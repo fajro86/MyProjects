@@ -79,11 +79,19 @@ echo "$(date '+%Y-%m-%d %H:%M:%S') - 开始申请 SSL 证书..."
 read -p "请输入您要为 Nginx Proxy Manager 配置的域名 (如: your-domain.com): " domain
 read -p "请输入您的邮箱地址 (用于 Certbot 证书申请): " email
 
-# 检查邮箱和域名是否为空
-if [ -z "$domain" ] || [ -z "$email" ]; then
-    echo "❌ 域名和邮箱不能为空，请重新运行脚本并提供有效的域名和邮箱！"
+# 确认输入的域名和邮箱是否有效
+if [ -z "$domain" ]; then
+    echo "❌ 域名不能为空，请重新运行脚本并提供有效的域名！"
     exit 1
 fi
+
+if [ -z "$email" ]; then
+    echo "❌ 邮箱不能为空，请重新运行脚本并提供有效的邮箱！"
+    exit 1
+fi
+
+echo "已输入域名: $domain"
+echo "已输入邮箱: $email"
 
 # 安装 Certbot
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 安装 Certbot..."
@@ -92,7 +100,7 @@ sudo apt install -y certbot
 
 # 申请证书
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 使用 Certbot 申请 SSL 证书..."
-sudo certbot certonly --standalone -d $domain --email $email --agree-tos --non-interactive
+sudo certbot certonly --standalone -d "$domain" --email "$email" --agree-tos --non-interactive
 
 # 配置 Nginx 证书
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Nginx 使用 SSL 证书..."
