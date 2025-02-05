@@ -38,31 +38,36 @@ if ! command -v docker-compose &> /dev/null; then
     fi
 fi
 
-# 检查代理相关环境变量
-echo "正在检查代理配置环境变量..."
+# 统一代理环境变量检查函数
+check_proxy_env_vars() {
+    echo "正在检查代理配置环境变量..."
 
-REQUIRED_VARS=("http_proxy" "https_proxy" "no_proxy")
-for VAR in "${REQUIRED_VARS[@]}"; do
-    if [ -z "${!VAR}" ]; then
-        echo "❌ 环境变量 $VAR 没有设置，代理可能无法正常工作。"
-        read -p "是否设置代理环境变量并继续安装？(y/n): " choice
-        if [[ "$choice" == "n" || "$choice" == "N" ]]; then
-            echo "脚本退出，未安装 Nginx Proxy Manager。"
-            exit 0
+    REQUIRED_VARS=("http_proxy" "https_proxy" "no_proxy")
+    for VAR in "${REQUIRED_VARS[@]}"; do
+        if [ -z "${!VAR}" ]; then
+            echo "❌ 环境变量 $VAR 没有设置，代理可能无法正常工作。"
+            read -p "是否设置代理环境变量并继续安装？(y/n): " choice
+            if [[ "$choice" == "n" || "$choice" == "N" ]]; then
+                echo "脚本退出，未安装 Nginx Proxy Manager。"
+                exit 0
+            fi
+
+            # 提示用户设置代理环境变量
+            read -p "请输入 http_proxy (如果不需要代理请留空): " HTTP_PROXY
+            read -p "请输入 https_proxy (如果不需要代理请留空): " HTTPS_PROXY
+            read -p "请输入 no_proxy (如果不需要代理请留空): " NO_PROXY
+
+            # 设置环境变量
+            export http_proxy="$HTTP_PROXY"
+            export https_proxy="$HTTPS_PROXY"
+            export no_proxy="$NO_PROXY"
+            echo "代理环境变量已设置。"
         fi
+    done
+}
 
-        # 提示用户设置代理环境变量
-        read -p "请输入 http_proxy (如果不需要代理请留空): " HTTP_PROXY
-        read -p "请输入 https_proxy (如果不需要代理请留空): " HTTPS_PROXY
-        read -p "请输入 no_proxy (如果不需要代理请留空): " NO_PROXY
-
-        # 设置环境变量
-        export http_proxy="$HTTP_PROXY"
-        export https_proxy="$HTTPS_PROXY"
-        export no_proxy="$NO_PROXY"
-        echo "代理环境变量已设置。"
-    fi
-done
+# 调用代理环境变量检查
+check_proxy_env_vars
 
 # 配置 Nginx Proxy Manager Docker 容器
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Nginx Proxy Manager Docker 容器..."
@@ -120,18 +125,3 @@ echo "📝 安装日志已保存到: $LOG_FILE"
 echo "🔑 默认管理员账号: admin@example.com"
 echo "🔑 默认管理员密码: changeme"
 echo "🌐 访问地址: http://$SERVER_IP:8118"
-
-# 如果用户选择退出，清理安装的文件并还原系统状态
-cleanup() {
-    echo "正在清理安装的文件..."
-    sudo rm -rf /opt/MyDocker/nginx-proxy-manager
-    echo "已清理所有安装文件，系统已还原。"
-}
-
-# 询问用户是否退出安装
-read -p "是否退出 Nginx Proxy Manager 安装并清理所有文件？(y/n): " choice
-if [[ "$choice" == "y" || "$choice" == "Y" ]]; then
-    cleanup
-    echo "退出安装，系统已还原。"
-    exit 0
-fi
