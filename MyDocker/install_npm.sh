@@ -38,6 +38,32 @@ if ! command -v docker-compose &> /dev/null; then
     fi
 fi
 
+# 检查代理相关环境变量
+echo "正在检查代理配置环境变量..."
+
+REQUIRED_VARS=("http_proxy" "https_proxy" "no_proxy")
+for VAR in "${REQUIRED_VARS[@]}"; do
+    if [ -z "${!VAR}" ]; then
+        echo "❌ 环境变量 $VAR 没有设置，代理可能无法正常工作。"
+        read -p "是否设置代理环境变量并继续安装？(y/n): " choice
+        if [[ "$choice" == "n" || "$choice" == "N" ]]; then
+            echo "脚本退出，未安装 Nginx Proxy Manager。"
+            exit 0
+        fi
+
+        # 提示用户设置代理环境变量
+        read -p "请输入 http_proxy (如果不需要代理请留空): " HTTP_PROXY
+        read -p "请输入 https_proxy (如果不需要代理请留空): " HTTPS_PROXY
+        read -p "请输入 no_proxy (如果不需要代理请留空): " NO_PROXY
+
+        # 设置环境变量
+        export http_proxy="$HTTP_PROXY"
+        export https_proxy="$HTTPS_PROXY"
+        export no_proxy="$NO_PROXY"
+        echo "代理环境变量已设置。"
+    fi
+done
+
 # 配置 Nginx Proxy Manager Docker 容器
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Nginx Proxy Manager Docker 容器..."
 
@@ -54,6 +80,9 @@ services:
     environment:
       - DB_SQLITE_FILE=/data/database.sqlite
       - DB_SQLITE_PASSWORD=changeme
+      - http_proxy=${http_proxy}
+      - https_proxy=${https_proxy}
+      - no_proxy=${no_proxy}
     volumes:
       - /opt/MyDocker/nginx-proxy-manager/data:/data
       - /opt/MyDocker/nginx-proxy-manager/letsencrypt:/etc/letsencrypt
