@@ -50,6 +50,16 @@ fi
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:81)
 if [ "${HTTP_CODE}" -ne 200 ]; then
   echo "警告：管理界面访问异常 (HTTP Code: ${HTTP_CODE})"
+  echo "尝试重新启动容器..."
+  docker restart nginx-proxy-manager
+  sleep 10
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:81)
+  if [ "${HTTP_CODE}" -ne 200 ]; then
+    echo "错误：管理界面仍然无法访问 (HTTP Code: ${HTTP_CODE})"
+    exit 1
+  else
+    echo "管理界面访问正常"
+  fi
 else
   echo "管理界面访问正常"
 fi
