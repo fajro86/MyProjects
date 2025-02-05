@@ -54,7 +54,6 @@ if dpkg -l | grep -q 'docker\|containerd'; then
     echo "2) 覆盖安装（保留旧版配置）"
     echo "3) 退出脚本"
     while true; do
-        # 强制从终端读取输入
         read -p "请输入选项 (1/2/3): " choice </dev/tty
         case $choice in
             1)
@@ -122,7 +121,7 @@ daemon_config="/etc/docker/daemon.json"
 docker_daemon_config="{
   \"data-root\": \"$docker_data_dir\",
   \"selinux-enabled\": false,
-  \"userns-remap\": \"\"
+  \"userns-remap\": \"default\"
 }"
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Docker daemon.json..."
