@@ -56,6 +56,13 @@ if [ "${HTTP_CODE}" -ne 200 ]; then
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:81)
   if [ "${HTTP_CODE}" -ne 200 ]; then
     echo "错误：管理界面仍然无法访问 (HTTP Code: ${HTTP_CODE})"
+    echo "调试信息："
+    echo "1. 检查 Docker 日志："
+    docker logs nginx-proxy-manager
+    echo "2. 检查网络连接："
+    ping -c 4 localhost
+    echo "3. 检查端口是否被占用："
+    netstat -tuln | grep :81
     exit 1
   else
     echo "管理界面访问正常"
