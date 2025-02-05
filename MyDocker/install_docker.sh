@@ -182,7 +182,31 @@ else
     echo "💾 磁盘空间情况: $disk_space"
 fi
 
-# 14. 清理临时文件
+# 14. 配置 Docker 代理（如果设置了 HTTP_PROXY 环境变量）
+if [ -n "$HTTP_PROXY" ]; then
+    echo "检测到代理设置，配置 Docker 代理..."
+    
+    # 创建 Docker 配置目录
+    mkdir -p /etc/systemd/system/docker.service.d
+    
+    # 写入代理配置
+    cat <<EOF > /etc/systemd/system/docker.service.d/proxy.conf
+    [Service]
+    Environment="HTTP_PROXY=$HTTP_PROXY"
+    Environment="HTTPS_PROXY=$HTTPS_PROXY"
+    Environment="NO_PROXY=$NO_PROXY"
+EOF
+    
+    # 重新加载 systemd 配置并重启 Docker 服务
+    systemctl daemon-reload
+    systemctl restart docker
+    
+    echo "✅ Docker 代理配置完成，服务已重启"
+else
+    echo "❌ 未检测到 HTTP_PROXY 环境变量，跳过 Docker 代理配置"
+fi
+
+# 15. 清理临时文件
 cleanup() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - 清理临时文件..."
     rm -f docker-compose.sha256
