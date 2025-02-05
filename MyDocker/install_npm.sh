@@ -19,133 +19,91 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# 检查系统类型和版本
-. /etc/os-release
-MIN_DEBIAN_VERSION="11"  # Debian 11 (Bullseye) 是 Docker 支持的最低版本
-MIN_UBUNTU_VERSION="18.04"
-
-if [[ "$ID" == "debian" ]]; then
-    if [[ $(lsb_release -rs) < "$MIN_DEBIAN_VERSION" ]]; then
-        echo "❌ Debian 系统版本低于所需的最低版本 ($MIN_DEBIAN_VERSION)"
-        exit 1
-    fi
-elif [[ "$ID" == "ubuntu" ]]; then
-    if [[ $(lsb_release -rs) < "$MIN_UBUNTU_VERSION" ]]; then
-        echo "❌ Ubuntu 系统版本低于所需的最低版本 ($MIN_UBUNTU_VERSION)"
-        exit 1
-    fi
+# 1. 安装 Docker（如果未安装）
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 检查并安装 Docker..."
+if ! command -v docker &> /dev/null; then
+    echo "Docker 未安装，正在安装..."
+    sudo apt update
+    sudo apt install -y docker.io
+    sudo systemctl start docker
+    sudo systemctl enable docker
 else
-    echo "❌ 不支持的系统: $ID"
-    exit 1
+    echo "Docker 已安装"
 fi
 
-# 询问是否申请证书
-echo "选择证书申请方式："
-echo "1) 跳过证书申请"
-echo "2) 立即申请自签名证书"
-echo "3) 立即申请 Let's Encrypt 证书"
-
-# 获取用户选择
-read -p "请输入选项 (1/2/3): " choice
-
-case $choice in
-    1)
-        echo "跳过证书申请，继续安装..."
-        ;;
-    2)
-        # 自签名证书生成
-        echo "正在生成自签名证书..."
-        ssl_dir="/opt/MyDocker/nginx-proxy-manager/letsencrypt"
-        sudo mkdir -p "$ssl_dir"
-        read -p "请输入用于生成证书的域名: " domain
-        read -p "请输入用于生成证书的邮箱: " email
-        sudo openssl req -x509 -nodes -newkey rsa:2048 -keyout "$ssl_dir/selfsigned.key" -out "$ssl_dir/selfsigned.crt" -days 365 -subj "/CN=$domain/emailAddress=$email"
-        echo "自签名证书已生成"
-        ;;
-    3)
-        # Let's Encrypt 证书申请
-        echo "正在申请 Let's Encrypt 证书..."
-        ssl_dir="/opt/MyDocker/nginx-proxy-manager/letsencrypt"
-        sudo mkdir -p "$ssl_dir"
-        read -p "请输入用于申请证书的域名: " domain
-        read -p "请输入用于申请证书的邮箱: " email
-
-        # 需要确保域名解析已指向服务器 IP
-        if ! command -v certbot &> /dev/null; then
-            echo "Certbot 未安装，正在安装..."
-            sudo apt install -y certbot
-        fi
-
-        # 使用 certbot 自动申请证书
-        sudo certbot certonly --standalone --agree-tos --no-eff-email -d "$domain" --email "$email"
-        
-        # 复制证书到指定目录
-        sudo cp /etc/letsencrypt/live/$domain/fullchain.pem "$ssl_dir/cert.pem"
-        sudo cp /etc/letsencrypt/live/$domain/privkey.pem "$ssl_dir/key.pem"
-        echo "Let's Encrypt 证书已申请并存储"
-        ;;
-    *)
-        echo "无效选项，退出安装"
-        exit 1
-        ;;
-esac
-
-# 安装 Docker 和 Docker Compose（确保已安装）
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 安装 Docker 和 Docker Compose..."
-
-# 安装 Docker（根据之前的步骤）
-# 你可以根据之前的讨论粘贴安装 Docker 的相关代码
-
-# 安装 Docker Compose
-DOCKER_COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep -Po '"tag_name": "\K.*\d')
-COMPOSE_URL="https://github.com/docker/compose/releases/download/$DOCKER_COMPOSE_VERSION/docker-compose-$(uname -s)-$(uname -m)"
-CHECKSUM_URL="$COMPOSE_URL.sha256"
-
-# 下载并校验 Docker Compose
-sudo curl -L "$COMPOSE_URL" -o /usr/local/bin/docker-compose || { echo "❌ Docker Compose 下载失败"; exit 1; }
-curl -L "$CHECKSUM_URL" -o docker-compose.sha256 || { echo "❌ Docker Compose 校验文件下载失败"; exit 1; }
-
-# 提取期望的哈希值，并手动校验
-EXPECTED_HASH=$(awk '{print $1}' docker-compose.sha256)
-ACTUAL_HASH=$(sha256sum /usr/local/bin/docker-compose | awk '{print $1}')
-
-if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
-    echo "❌ Docker Compose 校验失败 (期望哈希: $EXPECTED_HASH, 实际哈希: $ACTUAL_HASH)"
-    exit 1
+# 2. 安装 Docker Compose（如果未安装）
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 检查并安装 Docker Compose..."
+if ! command -v docker-compose &> /dev/null; then
+    echo "Docker Compose 未安装，正在安装..."
+    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    sudo chmod +x /usr/local/bin/docker-compose
+else
+    echo "Docker Compose 已安装"
 fi
 
-sudo chmod +x /usr/local/bin/docker-compose
-rm docker-compose.sha256
-echo "Docker Compose 版本: $(docker-compose --version)"
+# 3. 拉取并配置 Nginx Proxy Manager 镜像
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 拉取 Nginx Proxy Manager 镜像..."
+docker pull jc21/nginx-proxy-manager:latest
 
-# 配置 Nginx Proxy Manager Docker 容器
+# 4. 配置 Nginx Proxy Manager 的 Docker 容器
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Nginx Proxy Manager Docker 容器..."
+mkdir -p /opt/nginx-proxy-manager
+cd /opt/nginx-proxy-manager
 
-# 在 Docker 中启动 Nginx Proxy Manager
-mkdir -p /opt/MyDocker/nginx-proxy-manager
-
-cat <<EOF > /opt/MyDocker/nginx-proxy-manager/docker-compose.yml
+cat <<EOF > docker-compose.yml
 version: '3'
 
 services:
-  app:
+  nginx-proxy-manager:
     image: jc21/nginx-proxy-manager:latest
     container_name: nginx-proxy-manager
+    restart: unless-stopped
     environment:
       - DB_SQLITE_FILE=/data/database.sqlite
-      - DB_SQLITE_PASSWORD=changeme
+      - MYSQL_ROOT_PASSWORD=example  # 如果使用 MySQL 作为数据库
     volumes:
-      - /opt/MyDocker/nginx-proxy-manager/data:/data
-      - /opt/MyDocker/nginx-proxy-manager/letsencrypt:/etc/letsencrypt
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
     ports:
-      - "8188:80"
-      - "4443:443"
-    restart: unless-stopped
+      - "8188:8188"   # 可根据需求修改端口
+      - "80:80"
+      - "443:443"
 EOF
 
-echo "正在启动 Nginx Proxy Manager..."
-cd /opt/MyDocker/nginx-proxy-manager
-sudo docker-compose up -d
+# 5. 启动容器
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 启动 Nginx Proxy Manager 容器..."
+docker-compose up -d
 
-echo "🎉 Nginx Proxy Manager 中文版安装完成！"
+# 6. 申请 SSL 证书
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 开始申请 SSL 证书..."
+read -p "请输入您要为 Nginx Proxy Manager 配置的域名 (如: your-domain.com): " domain
+read -p "请输入您的邮箱地址 (用于 Certbot 证书申请): " email
+
+# 安装 Certbot
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 安装 Certbot..."
+sudo apt update
+sudo apt install -y certbot
+
+# 申请证书
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 使用 Certbot 申请 SSL 证书..."
+sudo certbot certonly --standalone -d $domain --email $email --agree-tos --non-interactive
+
+# 配置 Nginx 证书
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Nginx 使用 SSL 证书..."
+sudo cp /etc/letsencrypt/live/$domain/fullchain.pem /opt/nginx-proxy-manager/letsencrypt/$domain.crt
+sudo cp /etc/letsencrypt/live/$domain/privkey.pem /opt/nginx-proxy-manager/letsencrypt/$domain.key
+
+# 7. 配置 Nginx Proxy Manager 使用 SSL 证书
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Nginx Proxy Manager 使用 SSL..."
+docker exec -it nginx-proxy-manager bash -c "sed -i 's|ssl_certificate .*|ssl_certificate /etc/letsencrypt/$domain.crt;|' /etc/nginx/conf.d/default.conf"
+docker exec -it nginx-proxy-manager bash -c "sed -i 's|ssl_certificate_key .*|ssl_certificate_key /etc/letsencrypt/$domain.key;|' /etc/nginx/conf.d/default.conf"
+
+# 8. 重载 Nginx 配置
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 重载 Nginx 配置..."
+docker exec nginx-proxy-manager nginx -s reload
+
+# 9. 结束安装
+echo "🎉 Nginx Proxy Manager 安装完成！"
+echo "📁 Nginx Proxy Manager 配置目录: /opt/nginx-proxy-manager"
+echo "🛠️ 你可以访问 Nginx Proxy Manager 面板：http://$domain:8188"
 echo "📝 安装日志已保存到: $LOG_FILE"
