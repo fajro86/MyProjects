@@ -96,7 +96,7 @@ services:
     ports:
       - "8188:80"
       - "4443:443"
-      - "81:81"  # 添加管理面板端口
+      - "8118:81"  # 添加管理面板端口
     restart: unless-stopped
 EOF
 
@@ -121,4 +121,4 @@ echo "🎉 Nginx Proxy Manager 中文版安装完成！"
 echo "📝 安装日志已保存到: $LOG_FILE"
 echo "🔑 默认管理员账号: admin@example.com"
 echo "🔑 默认管理员密码: changeme"
-echo "🌐 访问地址: http://$SERVER_IP:81"
+echo "🌐 访问地址: http://$SERVER_IP:8118"
