@@ -4,6 +4,19 @@
 ROOT_DIR="/opt/MyDocker"
 PROJECT_DIR="${ROOT_DIR}/volumes/nginx-proxy-manager"
 
+# 卸载旧版 Nginx Proxy Manager（如果存在）
+if docker ps -a --format '{{.Names}}' | grep -q "nginx-proxy-manager"; then
+  echo "发现旧版容器，正在停止并删除容器..."
+  docker stop nginx-proxy-manager
+  docker rm nginx-proxy-manager
+  echo "旧版容器已删除"
+  
+  # 可选：删除相关数据卷（谨慎使用）
+  echo "正在删除旧版数据卷..."
+  docker volume rm $(docker volume ls -q --filter "name=nginx-proxy-manager")
+  echo "数据卷已删除"
+fi
+
 # 创建必要的目录
 mkdir -p "${PROJECT_DIR}/"{data,letsencrypt,logs} || { echo "错误：创建项目目录失败！"; exit 1; }
 mkdir -p "${ROOT_DIR}/"{containers,image,overlay2,network,tmp} || { echo "错误：创建根目录失败！"; exit 1; }
@@ -80,5 +93,5 @@ for DIR in "${VOLUME_DIRS[@]}"; do
 done
 
 echo "安装完成！管理界面：http://<服务器IP>:81"
-echo "默认账号：admin@example.com"
+echo "默认账号：admin@example.com" 
 echo "默认密码：changeme"
