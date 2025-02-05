@@ -3,70 +3,52 @@
 set -e  # 遇到错误直接退出
 trap 'echo "脚本错误：$(basename $0) 行号: $LINENO, 错误命令: $BASH_COMMAND, 错误代码: $?"' ERR
 
-# 提前认证 sudo，避免超时
-sudo -v
-
-# 日志记录
-LOG_FILE="nginx_proxy_manager_install.log"
-[ -f "$LOG_FILE" ] && mv "$LOG_FILE" "$LOG_FILE.$(date +%Y%m%d%H%M%S).bak"
-exec > >(tee -a "$LOG_FILE") 2>&1
-
-echo "脚本开始时间: $(date '+%Y-%m-%d %H:%M:%S')"
-
 # 检查是否为 root 权限运行
 if [ "$EUID" -ne 0 ]; then
     echo "❌ 请使用 root 权限运行此脚本 (使用 sudo)"
     exit 1
 fi
 
-# 检查是否安装 Docker 和 Docker Compose
-if ! command -v docker &> /dev/null || ! command -v docker-compose &> /dev/null; then
-    echo "❌ 系统中没有安装 Docker 或 Docker Compose！"
-    read -p "是否自动安装 Docker 和 Docker Compose？(y/n): " choice
+# 检查是否安装 Docker
+if ! command -v docker &> /dev/null; then
+    echo "❌ 系统中没有安装 Docker！"
+    read -p "是否自动安装 Docker？(y/n): " choice
     if [[ "$choice" == "y" || "$choice" == "Y" ]]; then
-        echo "正在从 GitHub 拉取并执行 Docker 和 Docker Compose 安装脚本..."
+        echo "正在从 GitHub 拉取并执行 Docker 安装脚本..."
         curl -fsSL https://raw.githubusercontent.com/fajro86/MyProjects/main/MyDocker/install_docker.sh -o install_docker.sh
         sudo bash install_docker.sh
     else
-        echo "脚本退出，未安装 Docker 和 Docker Compose。"
+        echo "脚本退出，未安装 Docker。"
         exit 0
     fi
 fi
 
-# 检查系统类型和版本
-. /etc/os-release
-MIN_DEBIAN_VERSION="11"  # Debian 11 (Bullseye) 是 Docker 支持的最低版本
-MIN_UBUNTU_VERSION="18.04"
-
-if [[ "$ID" == "debian" ]]; then
-    if [[ $(lsb_release -rs) < "$MIN_DEBIAN_VERSION" ]]; then
-        echo "❌ Debian 系统版本低于所需的最低版本 ($MIN_DEBIAN_VERSION)"
-        exit 1
+# 检查是否安装 Docker Compose
+if ! command -v docker-compose &> /dev/null; then
+    echo "❌ 系统中没有安装 Docker Compose！"
+    read -p "是否自动安装 Docker Compose？(y/n): " choice
+    if [[ "$choice" == "y" || "$choice" == "Y" ]]; then
+        echo "正在从 GitHub 拉取并执行 Docker Compose 安装脚本..."
+        curl -fsSL https://raw.githubusercontent.com/fajro86/MyProjects/main/MyDocker/install_docker.sh -o install_docker.sh
+        sudo bash install_docker.sh
+    else
+        echo "脚本退出，未安装 Docker Compose。"
+        exit 0
     fi
-elif [[ "$ID" == "ubuntu" ]]; then
-    if [[ $(lsb_release -rs) < "$MIN_UBUNTU_VERSION" ]]; then
-        echo "❌ Ubuntu 系统版本低于所需的最低版本 ($MIN_UBUNTU_VERSION)"
-        exit 1
-    fi
-else
-    echo "❌ 不支持的系统: $ID"
-    exit 1
-fi
-
-# 检查并删除现有的 nginx-proxy-manager 容器
-EXISTING_CONTAINER=$(sudo docker ps -a -q -f name=nginx-proxy-manager)
-if [ -n "$EXISTING_CONTAINER" ]; then
-    echo "⚠️ 检测到现有的 nginx-proxy-manager 容器，正在删除..."
-    sudo docker rm -f nginx-proxy-manager
 fi
 
 # 配置 Nginx Proxy Manager Docker 容器
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Nginx Proxy Manager Docker 容器..."
 
-# 在 Docker 中启动 Nginx Proxy Manager
-mkdir -p /opt/MyDocker/nginx-proxy-manager
+# 检查目标目录是否存在，如果没有，创建它
+NPM_DIR="/opt/MyDocker/nginx-proxy-manager"
+if [ ! -d "$NPM_DIR" ]; then
+    echo "⚠️ 目录不存在，创建目录: $NPM_DIR"
+    sudo mkdir -p "$NPM_DIR"
+fi
 
-cat <<EOF > /opt/MyDocker/nginx-proxy-manager/docker-compose.yml
+# 创建 Docker Compose 配置文件
+cat <<EOF > "$NPM_DIR/docker-compose.yml"
 version: '3'
 
 services:
@@ -86,7 +68,19 @@ services:
     restart: unless-stopped
 EOF
 
-# 使用 Docker Compose 启动容器
+# 检查 docker-compose.yml 是否成功创建
+if [ ! -f "$NPM_DIR/docker-compose.yml" ]; then
+    echo "❌ 未能创建 docker-compose.yml 文件"
+    exit 1
+fi
+
+echo "🔧 配置文件已创建: $NPM_DIR/docker-compose.yml"
+
+# 进入目标目录并启动容器
+cd "$NPM_DIR" || { echo "❌ 无法进入目录"; exit 1; }
+
+# 启动 Nginx Proxy Manager 容器
+echo "正在启动 Nginx Proxy Manager..."
 if ! sudo docker-compose up -d --remove-orphans; then
     echo "❌ 启动 Nginx Proxy Manager 容器失败"
     exit 1
