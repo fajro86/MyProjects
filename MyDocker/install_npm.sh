@@ -19,7 +19,7 @@ services:
     ports:
       - '80:80'
       - '443:443'
-      - '81:81'
+      - '8188:81'
     volumes:
       - $PROJECT_DIR/data:/data
       - $PROJECT_DIR/letsencrypt:/etc/letsencrypt
