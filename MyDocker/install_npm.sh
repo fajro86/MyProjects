@@ -96,13 +96,13 @@ services:
     ports:
       - "8188:80"
       - "4443:443"
-      - "8118:81"  # 添加管理面板端口
+      - "81:81"  # 添加管理面板端口
     restart: unless-stopped
 EOF
 
 echo "正在启动 Nginx Proxy Manager..."
 cd /opt/MyDocker/nginx-proxy-manager
-sudo docker-compose up -d
+sudo docker-compose up -d --remove-orphans
 
 # 检查容器状态
 sleep 10
@@ -118,4 +118,4 @@ echo "🎉 Nginx Proxy Manager 中文版安装完成！"
 echo "📝 安装日志已保存到: $LOG_FILE"
 echo "🔑 默认管理员账号: admin@example.com"
 echo "🔑 默认管理员密码: changeme"
-echo "🌐 访问地址: http://<服务器IP>:8118"
+echo "🌐 访问地址: http://<服务器IP>:81"
