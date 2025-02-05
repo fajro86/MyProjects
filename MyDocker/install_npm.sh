@@ -19,55 +19,46 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# 检查是否安装了 Docker 和 Docker Compose
-if ! command -v docker &> /dev/null; then
-    echo "❌ 系统中没有安装 Docker！"
-    read -p "是否继续安装 Nginx Proxy Manager？(y/n): " choice
-    if [[ "$choice" == "n" || "$choice" == "N" ]]; then
-        echo "脚本退出，未安装 Nginx Proxy Manager。"
+# 检查是否安装 Docker 和 Docker Compose
+if ! command -v docker &> /dev/null || ! command -v docker-compose &> /dev/null; then
+    echo "❌ 系统中没有安装 Docker 或 Docker Compose！"
+    read -p "是否自动安装 Docker 和 Docker Compose？(y/n): " choice
+    if [[ "$choice" == "y" || "$choice" == "Y" ]]; then
+        echo "正在从 GitHub 拉取并执行 Docker 和 Docker Compose 安装脚本..."
+        curl -fsSL https://raw.githubusercontent.com/fajro86/MyProjects/main/MyDocker/install_docker.sh -o install_docker.sh
+        sudo bash install_docker.sh
+    else
+        echo "脚本退出，未安装 Docker 和 Docker Compose。"
         exit 0
     fi
 fi
 
-if ! command -v docker-compose &> /dev/null; then
-    echo "❌ 系统中没有安装 Docker Compose！"
-    read -p "是否继续安装 Nginx Proxy Manager？(y/n): " choice
-    if [[ "$choice" == "n" || "$choice" == "N" ]]; then
-        echo "脚本退出，未安装 Nginx Proxy Manager。"
-        exit 0
+# 检查系统类型和版本
+. /etc/os-release
+MIN_DEBIAN_VERSION="11"  # Debian 11 (Bullseye) 是 Docker 支持的最低版本
+MIN_UBUNTU_VERSION="18.04"
+
+if [[ "$ID" == "debian" ]]; then
+    if [[ $(lsb_release -rs) < "$MIN_DEBIAN_VERSION" ]]; then
+        echo "❌ Debian 系统版本低于所需的最低版本 ($MIN_DEBIAN_VERSION)"
+        exit 1
     fi
+elif [[ "$ID" == "ubuntu" ]]; then
+    if [[ $(lsb_release -rs) < "$MIN_UBUNTU_VERSION" ]]; then
+        echo "❌ Ubuntu 系统版本低于所需的最低版本 ($MIN_UBUNTU_VERSION)"
+        exit 1
+    fi
+else
+    echo "❌ 不支持的系统: $ID"
+    exit 1
 fi
 
-# 统一代理环境变量检查函数
-check_proxy_env_vars() {
-    echo "正在检查代理配置环境变量..."
-
-    REQUIRED_VARS=("http_proxy" "https_proxy" "no_proxy")
-    for VAR in "${REQUIRED_VARS[@]}"; do
-        if [ -z "${!VAR}" ]; then
-            echo "❌ 环境变量 $VAR 没有设置，代理可能无法正常工作。"
-            read -p "是否设置代理环境变量并继续安装？(y/n): " choice
-            if [[ "$choice" == "n" || "$choice" == "N" ]]; then
-                echo "脚本退出，未安装 Nginx Proxy Manager。"
-                exit 0
-            fi
-
-            # 提示用户设置代理环境变量
-            read -p "请输入 http_proxy (如果不需要代理请留空): " HTTP_PROXY
-            read -p "请输入 https_proxy (如果不需要代理请留空): " HTTPS_PROXY
-            read -p "请输入 no_proxy (如果不需要代理请留空): " NO_PROXY
-
-            # 设置环境变量
-            export http_proxy="$HTTP_PROXY"
-            export https_proxy="$HTTPS_PROXY"
-            export no_proxy="$NO_PROXY"
-            echo "代理环境变量已设置。"
-        fi
-    done
-}
-
-# 调用代理环境变量检查
-check_proxy_env_vars
+# 检查并删除现有的 nginx-proxy-manager 容器
+EXISTING_CONTAINER=$(sudo docker ps -a -q -f name=nginx-proxy-manager)
+if [ -n "$EXISTING_CONTAINER" ]; then
+    echo "⚠️ 检测到现有的 nginx-proxy-manager 容器，正在删除..."
+    sudo docker rm -f nginx-proxy-manager
+fi
 
 # 配置 Nginx Proxy Manager Docker 容器
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 配置 Nginx Proxy Manager Docker 容器..."
@@ -85,9 +76,6 @@ services:
     environment:
       - DB_SQLITE_FILE=/data/database.sqlite
       - DB_SQLITE_PASSWORD=changeme
-      - http_proxy=${http_proxy}
-      - https_proxy=${https_proxy}
-      - no_proxy=${no_proxy}
     volumes:
       - /opt/MyDocker/nginx-proxy-manager/data:/data
       - /opt/MyDocker/nginx-proxy-manager/letsencrypt:/etc/letsencrypt
@@ -97,9 +85,6 @@ services:
       - "8118:81"  # 添加管理面板端口
     restart: unless-stopped
 EOF
-
-echo "正在启动 Nginx Proxy Manager..."
-cd /opt/MyDocker/nginx-proxy-manager
 
 # 使用 Docker Compose 启动容器
 if ! sudo docker-compose up -d --remove-orphans; then
