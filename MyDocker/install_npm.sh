@@ -39,6 +39,13 @@ else
     exit 1
 fi
 
+# 检查并删除现有的 nginx-proxy-manager 容器
+EXISTING_CONTAINER=$(sudo docker ps -a -q -f name=nginx-proxy-manager)
+if [ -n "$EXISTING_CONTAINER" ]; then
+    echo "⚠️ 检测到现有的 nginx-proxy-manager 容器，正在删除..."
+    sudo docker rm -f nginx-proxy-manager
+fi
+
 # 安装 Docker 和 Docker Compose（确保已安装）
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 安装 Docker 和 Docker Compose..."
 
